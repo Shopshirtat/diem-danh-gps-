@@ -112,20 +112,32 @@
   .keypad button{aspect-ratio:1; border-radius:50%; border:1px solid var(--line); background:var(--panel); color:var(--text); font-size:22px; font-weight:600; cursor:pointer;}
   .keypad button:active{background:var(--panel-2);}
   .keypad button.wide{grid-column:span 1; font-size:14px; color:var(--muted); border:none; background:none;}
+
+  /* v2 bổ sung */
+  .code-box{font-family:var(--mono); font-size:20px; font-weight:700; letter-spacing:.18em; color:var(--ok); background:var(--panel-2); border:1px dashed var(--ok-dim); border-radius:10px; padding:14px; text-align:center; margin-top:6px;}
+  .banner{border-radius:12px; padding:14px 16px; font-size:13px; line-height:1.55; margin-bottom:14px;}
+  .banner.err{background:var(--bad-dim); color:#FFD8DF; border:1px solid var(--bad);}
+  .banner.warn{background:#4A3A12; color:#FFE9BC; border:1px solid var(--warn);}
+  .banner b{display:block; margin-bottom:4px; font-size:14px;}
+  .spinner{width:18px; height:18px; border:2px solid var(--line); border-top-color:var(--ok); border-radius:50%; display:inline-block; animation:spin .7s linear infinite; vertical-align:-3px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .history-item .dist.warnflag{background:#4A3A12; color:var(--warn);}
+  .note-tag{font-size:11px; color:var(--warn); margin-top:2px;}
 </style>
 </head>
 <body>
 
 <header>
   <div>
-    <div class="eyebrow" id="hdr-eyebrow">Điểm danh theo vị trí</div>
-    <h1 id="hdr-title">Chấm công</h1>
+    <div class="eyebrow">Điểm danh theo vị trí</div>
+    <h1>Chấm công</h1>
   </div>
   <div class="role-badge" id="roleBadge" style="display:none;"></div>
 </header>
 
 <main>
   <section class="screen active" id="screen-checkin">
+    <div id="netBanner"></div>
     <div class="gauge-wrap">
       <div class="gauge">
         <svg viewBox="0 0 220 220">
@@ -159,7 +171,7 @@
   <section class="screen" id="screen-settings">
     <div class="card">
       <div class="card-row"><span class="k">Tên văn phòng</span><span class="v" id="cfgName">Chưa đặt</span></div>
-      <div class="card-row"><span class="k">Tọa độ tâm</span><span class="v" id="cfgCoord">—</span></div>
+      <div class="card-row"><span class="k">Toạ độ tâm</span><span class="v" id="cfgCoord">—</span></div>
       <div class="card-row"><span class="k">Bán kính</span><span class="v" id="cfgRadius">—</span></div>
     </div>
 
@@ -167,18 +179,23 @@
     <input type="text" id="inputOfficeName" placeholder="VD: Văn phòng 19 Trần Can">
 
     <label>Bán kính cho phép (mét)</label>
-    <input type="number" id="inputRadius" placeholder="80" min="20" step="10">
+    <input type="number" id="inputRadius" placeholder="80" min="20" max="5000" step="10">
 
     <button class="btn-secondary" id="btnUseCurrentLoc">📍 Dùng vị trí hiện tại làm tâm văn phòng</button>
     <button class="btn-primary" id="btnSaveConfig" style="margin-top:10px;">Lưu cài đặt</button>
 
-    <div class="hint">
-      <b>Giới hạn quan trọng:</b> Đây là web app dùng Geolocation API chuẩn của trình duyệt.
-      Không phát hiện được app giả lập GPS (fake GPS) như một app native có thể làm.
-      Mã PIN quản trị ở đây chỉ là lớp chặn tiện lợi để phân quyền giao diện, không phải bảo mật cấp mật khẩu thật —
-      không dùng để bảo vệ dữ liệu nhạy cảm.
+    <label style="margin-top:28px;">Mã mời nhân viên</label>
+    <div class="code-box" id="inviteBox">••••••••</div>
+    <button class="btn-secondary" id="btnShowInvite">Hiện mã mời</button>
+    <button class="btn-secondary" id="btnRotateInvite">Đổi mã mời mới</button>
+    <div class="hint">Nhân viên nhập mã này một lần duy nhất khi mở app lần đầu. Đổi mã sẽ không đăng xuất người đang dùng, chỉ chặn người mới.</div>
+
+    <div class="hint" style="margin-top:22px;">
+      <b>Giới hạn cần biết:</b> đây là web app dùng Geolocation API của trình duyệt.
+      Không phát hiện được ứng dụng giả lập GPS — chỉ app native mới đọc được cờ mock location.
+      Khoảng cách được máy chủ tính lại từ toạ độ nên không sửa được từ trình duyệt, nhưng toạ độ giả thì vẫn qua được.
     </div>
-    <button class="btn-secondary" id="btnResetRole" style="margin-top:24px; border-color:var(--bad); color:var(--bad);">Đăng xuất / đổi vai trò trên máy này</button>
+    <button class="btn-secondary" id="btnResetRole" style="margin-top:20px; border-color:var(--bad); color:var(--bad);">Đăng xuất khỏi máy này</button>
   </section>
 </main>
 
@@ -199,8 +216,14 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ROLE GATE OVERLAY -->
-<div class="overlay" id="overlayRole">
+<div class="overlay" id="overlayBoot">
+  <div class="brand">Điểm danh GPS</div>
+  <h2 id="bootTitle"><span class="spinner"></span> Đang kết nối máy chủ…</h2>
+  <p class="sub" id="bootSub">Lần đầu mở có thể mất vài giây.</p>
+  <div id="bootExtra"></div>
+</div>
+
+<div class="overlay" id="overlayRole" style="display:none;">
   <div class="brand">Điểm danh GPS</div>
   <h2>Bạn là ai?</h2>
   <p class="sub">Chọn vai trò để dùng đúng chức năng. Quản trị mới được đặt vị trí văn phòng và xem toàn bộ lịch sử.</p>
@@ -218,17 +241,20 @@
 
 <div class="overlay" id="overlayEmployeeName" style="display:none;">
   <div class="brand">Điểm danh GPS</div>
-  <h2>Tên của bạn</h2>
-  <p class="sub">Tên này sẽ hiện trong lịch sử điểm danh.</p>
-  <input type="text" id="empNameInput" placeholder="VD: Nguyễn Văn A">
-  <button class="btn-primary" id="empNameConfirm" style="margin-top:16px;">Tiếp tục</button>
+  <h2>Đăng ký thiết bị</h2>
+  <p class="sub">Chỉ làm một lần trên mỗi máy. Xin mã mời từ người quản lý.</p>
+  <label>Họ tên</label>
+  <input type="text" id="empNameInput" placeholder="VD: Nguyễn Văn A" autocomplete="name">
+  <label>Mã mời</label>
+  <input type="text" id="empInviteInput" placeholder="VD: VANPHONG" autocapitalize="characters" autocomplete="off">
+  <button class="btn-primary" id="empNameConfirm" style="margin-top:18px;">Tiếp tục</button>
   <div class="back-link" id="backFromEmpName">← Quay lại</div>
 </div>
 
 <div class="overlay" id="overlayPin" style="display:none;">
   <div class="brand">Điểm danh GPS</div>
-  <h2 id="pinTitle">Nhập mã PIN quản trị</h2>
-  <p class="sub" id="pinSub">Mã PIN gồm 4 số.</p>
+  <h2>Nhập mã PIN quản trị</h2>
+  <p class="sub">Mã PIN gồm 4 số, do người cài đặt hệ thống đặt trong Apps Script.</p>
   <div class="pin-dots" id="pinDots">
     <div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div>
   </div>
@@ -237,298 +263,321 @@
 </div>
 
 <script>
+'use strict';
+
+/* =====================================================================
+ * Điểm danh GPS — frontend v2
+ * URL /exec BẮT BUỘC phải là bản deploy mới nhất của Code.gs v2.
+ * Sau mỗi lần sửa Code.gs: Deploy > Manage deployments > sửa > New version.
+ * Nếu bấm "New deployment" sẽ sinh URL khác và dòng dưới thành 404.
+ * ===================================================================== */
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/PASTE_URL_MOI_VAO_DAY/exec';
+
 const CIRC = 2 * Math.PI * 95;
+const TOKEN_KEY = 'dd_token_v2';
+
+let state = { config:null, identity:null, token:null, lastPos:null, withinRange:false, pinBuffer:'', busy:false };
+
+/* ---------- tiện ích ---------- */
+function $(id){ return document.getElementById(id); }
+
+function escapeHtml(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function showToast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+
+function fmtTime(ts){
+  const n = Number(ts);
+  if(!isFinite(n) || n <= 0) return '—';
+  return new Date(n).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit'});
+}
 
 function haversine(lat1, lon1, lat2, lon2){
-  const R = 6371000;
-  const toRad = d => d * Math.PI/180;
+  const R = 6371000, toRad = d => d * Math.PI/180;
   const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
   const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
-function showToast(msg){
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 2200);
-}
-function fmtTime(ts){
-  return new Date(ts).toLocaleString('vi-VN', {hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit'});
-}
-function escapeHtml(s){
-  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
-}
 
-// ---- backend: Google Apps Script (Google Sheet làm DB) ----
-// Dùng JSONP (thẻ <script>) thay vì fetch() vì Apps Script không trả header CORS,
-// fetch() từ domain khác (GitHub Pages) sẽ bị trình duyệt chặn đọc phản hồi.
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwFBa20gUVtbDMOjI4xVq0DvadnhHjMl3jPRUWeV9V4JHbzPi07LVr8qDHnBmpqgOwU/exec';
-
-function apiCall(action, payload={}){
-  return new Promise((resolve)=>{
-    const cbName = 'cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const timeout = setTimeout(()=>{
-      cleanup();
-      resolve({ ok:false, error:'Hết thời gian chờ server' });
-    }, 15000);
+/* ---------- lớp gọi backend (JSONP — Apps Script không trả header CORS) ---------- */
+function jsonp(action, payload){
+  return new Promise(resolve=>{
+    if(APPS_SCRIPT_URL.indexOf('PASTE_URL_MOI_VAO_DAY') !== -1){
+      resolve({ ok:false, error:'CHUA_CAU_HINH' });
+      return;
+    }
+    const cbName = 'cb_' + Date.now() + '_' + Math.floor(Math.random()*1e9);
+    let script;
+    const timer = setTimeout(()=>{ cleanup(); resolve({ ok:false, error:'TIMEOUT' }); }, 20000);
 
     function cleanup(){
-      clearTimeout(timeout);
-      delete window[cbName];
-      if(script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timer);
+      try{ delete window[cbName]; }catch(e){ window[cbName] = undefined; }
+      if(script && script.parentNode) script.parentNode.removeChild(script);
     }
+    window[cbName] = data => { cleanup(); resolve(data); };
 
-    window[cbName] = (data)=>{ cleanup(); resolve(data); };
-
-    const qs = new URLSearchParams({
-      action,
-      payload: JSON.stringify(payload),
-      callback: cbName
-    });
-    const script = document.createElement('script');
+    const qs = new URLSearchParams({ action, payload: JSON.stringify(payload||{}), callback: cbName });
+    script = document.createElement('script');
     script.src = APPS_SCRIPT_URL + '?' + qs.toString();
-    script.onerror = ()=>{ cleanup(); resolve({ ok:false, error:'Không kết nối được server' }); };
-    document.body.appendChild(script);
+    script.onerror = ()=>{ cleanup(); resolve({ ok:false, error:'NETWORK' }); };
+    document.head.appendChild(script);
   });
 }
 
-async function getConfig(){
-  const r = await apiCall('getConfig');
-  return (r.ok && r.config) ? r.config : null;
-}
-async function checkHasPin(){
-  const r = await apiCall('getConfig');
-  return r.ok ? !!r.hasPin : false;
-}
-async function saveConfig(cfg){
-  const r = await apiCall('saveConfig', cfg);
-  return !!r.ok;
-}
-async function verifyPinRemote(pin){
-  const r = await apiCall('verifyPin', { pin });
-  return r.ok && r.valid;
-}
-async function setupPinRemote(pin){
-  const r = await apiCall('setupPin', { pin });
-  return !!r.ok;
-}
-async function logCheckin(entry){
-  const r = await apiCall('logCheckin', entry);
-  return !!r.ok;
-}
-async function loadHistory(name, isAdmin){
-  const r = await apiCall('getHistory', { name, isAdmin });
-  return (r.ok && r.entries) ? r.entries : [];
+async function api(action, payload){
+  const p = Object.assign({}, payload || {});
+  if(state.token) p.token = state.token;
+  const r = await jsonp(action, p);
+
+  if(!r || typeof r !== 'object') return { ok:false, error:'Máy chủ trả dữ liệu lạ' };
+
+  if(r.error === 'AUTH'){ forceRelogin('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'); return r; }
+  if(r.error === 'CHUA_CAU_HINH') return { ok:false, error:'Chưa dán URL Apps Script vào index.html' };
+  if(r.error === 'TIMEOUT')       return { ok:false, error:'Máy chủ không phản hồi sau 20 giây' };
+  if(r.error === 'NETWORK')       return { ok:false, error:'Không gọi được máy chủ. Kiểm tra URL /exec và quyền truy cập "Anyone".' };
+  return r;
 }
 
-// ---- danh tính trên máy: dùng localStorage (đây là web thật, không phải artifact Claude) ----
-function getLocalIdentity(){
-  try{ const v = localStorage.getItem('identity'); return v ? JSON.parse(v) : null; }catch(e){ return null; }
-}
-function saveLocalIdentity(obj){
-  try{ localStorage.setItem('identity', JSON.stringify(obj)); }catch(e){}
-}
-function clearLocalIdentity(){
-  try{ localStorage.removeItem('identity'); }catch(e){}
+/* ---------- token ---------- */
+function loadToken(){ try{ return localStorage.getItem(TOKEN_KEY); }catch(e){ return null; } }
+function saveToken(t){ try{ localStorage.setItem(TOKEN_KEY, t); }catch(e){} }
+function dropToken(){ try{ localStorage.removeItem(TOKEN_KEY); }catch(e){} }
+
+function forceRelogin(msg){
+  state.token = null; state.identity = null; state.config = null;
+  dropToken();
+  hideAllOverlays();
+  $('overlayRole').style.display = 'flex';
+  if(msg) showToast(msg);
 }
 
-// ---- state ----
-let state = { config:null, identity:null, lastPos:null, withinRange:false, pinBuffer:'', pinMode:'verify' };
-
-// ---- nav ----
+/* ---------- điều hướng ---------- */
 document.querySelectorAll('nav button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     if(btn.id === 'navSettings' && (!state.identity || state.identity.role !== 'admin')) return;
     document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById('screen-'+btn.dataset.screen).classList.add('active');
-    if(btn.dataset.screen === 'history') refreshHistory();
+    $('screen-'+btn.dataset.screen).classList.add('active');
+    if(btn.dataset.screen === 'history')  refreshHistory();
     if(btn.dataset.screen === 'settings') refreshSettingsView();
   });
 });
 
 function applyRoleUI(){
   const isAdmin = state.identity && state.identity.role === 'admin';
-  document.getElementById('navSettings').classList.toggle('hidden', !isAdmin);
-  const badge = document.getElementById('roleBadge');
+  $('navSettings').classList.toggle('hidden', !isAdmin);
+  const badge = $('roleBadge');
   badge.style.display = 'block';
   badge.className = 'role-badge ' + (isAdmin ? 'admin' : 'employee');
   badge.textContent = isAdmin ? '🔑 QUẢN TRỊ' : (state.identity ? state.identity.name : 'NHÂN VIÊN');
-  document.getElementById('rowName').textContent = state.identity ? state.identity.name : '—';
+  $('rowName').textContent = state.identity ? state.identity.name : '—';
 }
 
+/* ---------- đồng hồ khoảng cách ---------- */
 function updateGauge(distance, radius){
-  const fg = document.getElementById('gaugeFg');
-  const statusEl = document.getElementById('gaugeStatus');
-  const distEl = document.getElementById('gaugeDist');
+  const fg = $('gaugeFg'), statusEl = $('gaugeStatus'), distEl = $('gaugeDist');
   const within = distance <= radius;
   distEl.textContent = distance < 1000 ? Math.round(distance) : (distance/1000).toFixed(1)+'k';
-  const scaleMax = radius * 3;
-  const pct = Math.max(0, Math.min(1, 1 - (distance / scaleMax)));
+  const pct = Math.max(0, Math.min(1, 1 - (distance / (radius * 3))));
   fg.style.strokeDashoffset = CIRC * (1 - pct);
   fg.style.stroke = within ? '#3DDC84' : (distance <= radius*1.5 ? '#F5B942' : '#FF5470');
   statusEl.className = 'gauge-status ' + (within ? 'ok' : 'bad');
-  statusEl.textContent = within ? '✓ Trong phạm vi văn phòng' : `Ngoài phạm vi (cần ≤ ${radius}m)`;
+  statusEl.textContent = within ? '✓ Trong phạm vi văn phòng' : 'Ngoài phạm vi (cần ≤ ' + radius + 'm)';
   state.withinRange = within;
-  document.getElementById('btnCheckin').disabled = !within;
+  $('btnCheckin').disabled = !within || state.busy;
 }
 
-async function locate(){
+function locate(){
   if(!state.config){ showToast('Quản trị chưa cài đặt vị trí văn phòng'); return; }
   if(!navigator.geolocation){ showToast('Thiết bị không hỗ trợ định vị'); return; }
-  document.getElementById('gaugeStatus').textContent = 'Đang định vị…';
-  document.getElementById('gaugeStatus').className = 'gauge-status idle';
+  $('gaugeStatus').textContent = 'Đang định vị…';
+  $('gaugeStatus').className = 'gauge-status idle';
 
   navigator.geolocation.getCurrentPosition(pos=>{
-    const {latitude, longitude, accuracy} = pos.coords;
-    const dist = haversine(latitude, longitude, state.config.lat, state.config.lon);
-    state.lastPos = {lat:latitude, lon:longitude, accuracy, dist, ts:Date.now()};
-    document.getElementById('rowAccuracy').textContent = '±' + Math.round(accuracy) + 'm';
-    document.getElementById('rowRadius').textContent = state.config.radius + 'm';
-    document.getElementById('rowTime').textContent = fmtTime(Date.now());
+    const c = pos.coords;
+    const dist = haversine(c.latitude, c.longitude, state.config.lat, state.config.lon);
+    state.lastPos = { lat:c.latitude, lon:c.longitude, accuracy:c.accuracy, dist, ts:Date.now() };
+    $('rowAccuracy').textContent = '±' + Math.round(c.accuracy) + 'm';
+    $('rowRadius').textContent   = state.config.radius + 'm';
+    $('rowTime').textContent     = fmtTime(Date.now());
     updateGauge(dist, state.config.radius);
-    document.getElementById('checkinHint').innerHTML = accuracy > state.config.radius
-      ? `<b>Lưu ý:</b> độ chính xác GPS hiện tại (±${Math.round(accuracy)}m) lớn hơn bán kính cho phép — thử ra gần cửa sổ/ngoài trời rồi đo lại.`
+    $('checkinHint').innerHTML = c.accuracy > state.config.radius
+      ? '<b>Lưu ý:</b> độ chính xác GPS hiện tại (±' + Math.round(c.accuracy) + 'm) lớn hơn bán kính cho phép — ra gần cửa sổ hoặc ngoài trời rồi đo lại.'
       : '';
   }, err=>{
-    document.getElementById('gaugeStatus').textContent = 'Lỗi định vị';
-    document.getElementById('gaugeStatus').className = 'gauge-status bad';
+    $('gaugeStatus').textContent = 'Lỗi định vị';
+    $('gaugeStatus').className = 'gauge-status bad';
     let msg = 'Không lấy được vị trí.';
     if(err.code === 1) msg = 'Bạn chưa cấp quyền vị trí cho trình duyệt.';
+    if(err.code === 2) msg = 'Không xác định được vị trí. Bật GPS rồi thử lại.';
     if(err.code === 3) msg = 'Định vị quá thời gian chờ, thử lại.';
     showToast(msg);
-  }, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+  }, { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
 }
-document.getElementById('btnLocate').addEventListener('click', locate);
+$('btnLocate').addEventListener('click', locate);
 
-document.getElementById('btnCheckin').addEventListener('click', async ()=>{
-  if(!state.withinRange || !state.lastPos) return;
-  const btn = document.getElementById('btnCheckin');
-  btn.disabled = true; btn.textContent = 'Đang lưu…';
-  const entry = {
-    name: state.identity ? state.identity.name : 'Không rõ',
-    role: state.identity ? state.identity.role : 'employee',
-    lat: state.lastPos.lat, lon: state.lastPos.lon,
-    accuracy: state.lastPos.accuracy, dist: Math.round(state.lastPos.dist),
-    ts: Date.now()
-  };
-  const ok = await logCheckin(entry);
-  btn.textContent = 'Điểm danh'; btn.disabled = !state.withinRange;
-  showToast(ok ? '✓ Đã điểm danh lúc ' + fmtTime(entry.ts) : 'Lỗi lưu dữ liệu, thử lại');
+/* ---------- điểm danh ---------- */
+$('btnCheckin').addEventListener('click', async ()=>{
+  if(!state.withinRange || !state.lastPos || state.busy) return;
+  const btn = $('btnCheckin');
+  state.busy = true; btn.disabled = true; btn.textContent = 'Đang lưu…';
+
+  // Chỉ gửi dữ liệu thô. Máy chủ tự tính khoảng cách và tự quyết định.
+  const r = await api('checkin', {
+    lat: state.lastPos.lat,
+    lon: state.lastPos.lon,
+    accuracy: state.lastPos.accuracy
+  });
+
+  state.busy = false;
+  btn.textContent = 'Điểm danh';
+  btn.disabled = !state.withinRange;
+
+  if(r.ok){
+    showToast('✓ Đã điểm danh lúc ' + fmtTime(r.ts) + ' — cách ' + r.dist + 'm');
+    if(r.note) showToast('Ghi chú: ' + r.note);
+  } else {
+    showToast(r.error || 'Lỗi lưu dữ liệu, thử lại');
+  }
 });
 
-// ---- settings (admin only) ----
-document.getElementById('btnUseCurrentLoc').addEventListener('click', ()=>{
+/* ---------- cài đặt (chỉ quản trị) ---------- */
+$('btnUseCurrentLoc').addEventListener('click', ()=>{
   if(!navigator.geolocation){ showToast('Thiết bị không hỗ trợ định vị'); return; }
   showToast('Đang lấy vị trí hiện tại…');
   navigator.geolocation.getCurrentPosition(pos=>{
-    window._tempOfficeCoord = {lat:pos.coords.latitude, lon:pos.coords.longitude};
-    document.getElementById('cfgCoord').textContent = pos.coords.latitude.toFixed(6) + ', ' + pos.coords.longitude.toFixed(6) + ' (chưa lưu)';
-    showToast('Đã lấy tọa độ — nhấn Lưu cài đặt để áp dụng');
-  }, ()=> showToast('Không lấy được vị trí'), {enableHighAccuracy:true, timeout:15000});
+    window._tempOfficeCoord = { lat:pos.coords.latitude, lon:pos.coords.longitude };
+    $('cfgCoord').textContent = pos.coords.latitude.toFixed(6) + ', ' + pos.coords.longitude.toFixed(6) + ' (chưa lưu)';
+    showToast('Đã lấy toạ độ — nhấn Lưu cài đặt để áp dụng');
+  }, ()=> showToast('Không lấy được vị trí'), { enableHighAccuracy:true, timeout:20000 });
 });
 
-document.getElementById('btnSaveConfig').addEventListener('click', async ()=>{
-  const officeName = document.getElementById('inputOfficeName').value.trim();
-  const radius = parseInt(document.getElementById('inputRadius').value) || 80;
-  const coord = window._tempOfficeCoord || (state.config ? {lat:state.config.lat, lon:state.config.lon} : null);
-  if(!coord){ showToast('Chưa có tọa độ văn phòng — nhấn "Dùng vị trí hiện tại" trước'); return; }
-  const cfg = { name: officeName || (state.config?.name) || 'Văn phòng', lat: coord.lat, lon: coord.lon, radius };
-  const ok = await saveConfig(cfg);
-  if(ok){ state.config = cfg; refreshSettingsView(); showToast('✓ Đã lưu cài đặt'); }
-  else showToast('Lỗi lưu cài đặt');
+$('btnSaveConfig').addEventListener('click', async ()=>{
+  const officeName = $('inputOfficeName').value.trim();
+  const radius = parseInt($('inputRadius').value, 10) || 80;
+  const coord = window._tempOfficeCoord || (state.config ? { lat:state.config.lat, lon:state.config.lon } : null);
+  if(!coord){ showToast('Chưa có toạ độ — nhấn "Dùng vị trí hiện tại" trước'); return; }
+
+  const r = await api('saveConfig', { name: officeName || 'Văn phòng', lat: coord.lat, lon: coord.lon, radius });
+  if(r.ok){
+    state.config = r.config;
+    window._tempOfficeCoord = null;
+    refreshSettingsView();
+    $('rowRadius').textContent = state.config.radius + 'm';
+    showToast('✓ Đã lưu cài đặt');
+  } else showToast(r.error || 'Lỗi lưu cài đặt');
 });
 
-document.getElementById('btnResetRole').addEventListener('click', ()=>{
-  clearLocalIdentity();
+$('btnShowInvite').addEventListener('click', async ()=>{
+  const r = await api('getInvite');
+  $('inviteBox').textContent = r.ok ? (r.invite || '(chưa có)') : '';
+  if(!r.ok) showToast(r.error || 'Không lấy được mã mời');
+});
+
+$('btnRotateInvite').addEventListener('click', async ()=>{
+  if(!confirm('Đổi mã mời mới? Người đang dùng không bị ảnh hưởng, nhưng mã cũ sẽ không dùng để đăng ký máy mới được nữa.')) return;
+  const r = await api('rotateInvite');
+  if(r.ok){ $('inviteBox').textContent = r.invite; showToast('✓ Đã đổi mã mời'); }
+  else showToast(r.error || 'Lỗi đổi mã mời');
+});
+
+$('btnResetRole').addEventListener('click', async ()=>{
+  await api('logout');
+  dropToken();
   location.reload();
 });
 
 function refreshSettingsView(){
-  if(state.config){
-    document.getElementById('cfgName').textContent = state.config.name;
-    document.getElementById('cfgCoord').textContent = state.config.lat.toFixed(6)+', '+state.config.lon.toFixed(6);
-    document.getElementById('cfgRadius').textContent = state.config.radius + 'm';
-    document.getElementById('inputOfficeName').value = state.config.name;
-    document.getElementById('inputRadius').value = state.config.radius;
-  }
+  if(!state.config) return;
+  $('cfgName').textContent  = state.config.name;
+  $('cfgCoord').textContent = Number(state.config.lat).toFixed(6) + ', ' + Number(state.config.lon).toFixed(6);
+  $('cfgRadius').textContent = state.config.radius + 'm';
+  $('inputOfficeName').value = state.config.name;
+  $('inputRadius').value     = state.config.radius;
 }
 
+/* ---------- lịch sử ---------- */
 async function refreshHistory(){
-  const list = document.getElementById('historyList');
-  list.innerHTML = '<div class="empty">Đang tải…</div>';
+  const list = $('historyList');
+  list.innerHTML = '<div class="empty"><span class="spinner"></span> Đang tải…</div>';
+  const r = await api('history');
+  if(!r.ok){ list.innerHTML = '<div class="empty">' + escapeHtml(r.error || 'Không tải được lịch sử') + '</div>'; return; }
+
   const isAdmin = state.identity && state.identity.role === 'admin';
-  const entries = await loadHistory(state.identity ? state.identity.name : '', isAdmin);
-  if(entries.length === 0){
+  if(!r.entries.length){
     list.innerHTML = '<div class="empty">' + (isAdmin ? 'Chưa có lượt điểm danh nào' : 'Bạn chưa điểm danh lần nào') + '</div>';
     return;
   }
-  list.innerHTML = entries.slice(0, 100).map(e => `
-    <div class="history-item">
-      <div>
-        <div class="name">${escapeHtml(e.name)}</div>
-        <div class="time">${fmtTime(e.ts)} · ±${Math.round(e.accuracy)}m</div>
-      </div>
-      <div class="dist ok">${e.dist}m</div>
-    </div>
-  `).join('');
+
+  // Mọi giá trị đều escape. v1 chèn thẳng dist/accuracy => stored XSS.
+  list.innerHTML = r.entries.map(e => {
+    const flagged = !!e.note;
+    return '<div class="history-item">' +
+      '<div>' +
+        '<div class="name">' + escapeHtml(e.name) + '</div>' +
+        '<div class="time">' + escapeHtml(fmtTime(e.ts)) + ' · ±' + escapeHtml(Math.round(Number(e.accuracy)||0)) + 'm</div>' +
+        (flagged ? '<div class="note-tag">⚠ ' + escapeHtml(e.note) + '</div>' : '') +
+      '</div>' +
+      '<div class="dist ' + (flagged ? 'warnflag' : 'ok') + '">' + escapeHtml(Math.round(Number(e.dist)||0)) + 'm</div>' +
+    '</div>';
+  }).join('');
 }
 
-// ---- role gate flow ----
-const ovRole = document.getElementById('overlayRole');
-const ovEmpName = document.getElementById('overlayEmployeeName');
-const ovPin = document.getElementById('overlayPin');
+/* ---------- màn hình đăng nhập ---------- */
+const ovBoot = $('overlayBoot'), ovRole = $('overlayRole'),
+      ovEmp  = $('overlayEmployeeName'), ovPin = $('overlayPin');
 
 function hideAllOverlays(){
-  ovRole.style.display = 'none';
-  ovEmpName.style.display = 'none';
-  ovPin.style.display = 'none';
+  [ovBoot, ovRole, ovEmp, ovPin].forEach(o => o.style.display = 'none');
 }
 
-document.getElementById('pickEmployee').addEventListener('click', ()=>{
-  hideAllOverlays();
-  ovEmpName.style.display = 'flex';
-  document.getElementById('empNameInput').focus();
+$('pickEmployee').addEventListener('click', ()=>{
+  hideAllOverlays(); ovEmp.style.display = 'flex'; $('empNameInput').focus();
 });
-document.getElementById('backFromEmpName').addEventListener('click', ()=>{
-  hideAllOverlays(); ovRole.style.display = 'flex';
-});
-document.getElementById('empNameConfirm').addEventListener('click', async ()=>{
-  const name = document.getElementById('empNameInput').value.trim();
+$('backFromEmpName').addEventListener('click', ()=>{ hideAllOverlays(); ovRole.style.display = 'flex'; });
+$('backFromPin').addEventListener('click', ()=>{ hideAllOverlays(); ovRole.style.display = 'flex'; });
+
+$('empNameConfirm').addEventListener('click', async ()=>{
+  const name   = $('empNameInput').value.trim();
+  const invite = $('empInviteInput').value.trim();
   if(!name){ showToast('Nhập tên trước đã'); return; }
-  const identity = {role:'employee', name};
-  saveLocalIdentity(identity);
-  state.identity = identity;
-  hideAllOverlays();
-  applyRoleUI();
+  if(!invite){ showToast('Nhập mã mời do quản lý cấp'); return; }
+
+  const btn = $('empNameConfirm');
+  btn.disabled = true; btn.textContent = 'Đang kiểm tra…';
+  const r = await api('join', { name, invite });
+  btn.disabled = false; btn.textContent = 'Tiếp tục';
+
+  if(!r.ok){ showToast(r.error || 'Đăng ký thất bại'); return; }
+  await onLoggedIn(r);
 });
 
-document.getElementById('pickAdmin').addEventListener('click', async ()=>{
-  const existingPin = await checkHasPin();
-  state.pinMode = existingPin ? 'verify' : 'setup';
-  state.pinBuffer = '';
-  document.getElementById('pinTitle').textContent = existingPin ? 'Nhập mã PIN quản trị' : 'Đặt mã PIN quản trị mới';
-  document.getElementById('pinSub').textContent = existingPin ? 'Mã PIN gồm 4 số.' : 'Tạo mã PIN 4 số để bảo vệ trang Cài đặt (chia sẻ mã này với người quản lý khác nếu cần).';
-  renderPinDots();
-  hideAllOverlays();
-  ovPin.style.display = 'flex';
-});
-document.getElementById('backFromPin').addEventListener('click', ()=>{
-  hideAllOverlays(); ovRole.style.display = 'flex';
+$('pickAdmin').addEventListener('click', ()=>{
+  state.pinBuffer = ''; renderPinDots();
+  hideAllOverlays(); ovPin.style.display = 'flex';
 });
 
 function renderPinDots(){
-  const dots = document.querySelectorAll('.pin-dot');
-  dots.forEach((d,i)=> d.classList.toggle('filled', i < state.pinBuffer.length));
+  document.querySelectorAll('.pin-dot').forEach((d,i)=> d.classList.toggle('filled', i < state.pinBuffer.length));
 }
 
 function buildKeypad(){
-  const pad = document.getElementById('pinKeypad');
+  const pad = $('pinKeypad');
   pad.innerHTML = '';
-  const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
-  keys.forEach(k=>{
+  ['1','2','3','4','5','6','7','8','9','','0','⌫'].forEach(k=>{
     const b = document.createElement('button');
-    if(k === ''){ b.className='wide'; b.style.visibility='hidden'; pad.appendChild(b); return; }
+    if(k === ''){ b.className = 'wide'; b.style.visibility = 'hidden'; pad.appendChild(b); return; }
     if(k === '⌫') b.className = 'wide';
     b.textContent = k;
     b.addEventListener('click', ()=> onPinKey(k));
@@ -537,69 +586,101 @@ function buildKeypad(){
 }
 
 async function onPinKey(k){
+  if(state.busy) return;
   if(k === '⌫'){ state.pinBuffer = state.pinBuffer.slice(0,-1); renderPinDots(); return; }
   if(state.pinBuffer.length >= 4) return;
   state.pinBuffer += k;
   renderPinDots();
-  if(state.pinBuffer.length === 4){
-    await new Promise(r=>setTimeout(r,150));
-    if(state.pinMode === 'setup'){
-      const ok = await setupPinRemote(state.pinBuffer);
-      if(ok){
-        const identity = {role:'admin', name:'Quản trị'};
-        saveLocalIdentity(identity);
-        state.identity = identity;
-        hideAllOverlays();
-        applyRoleUI();
-        showToast('✓ Đã đặt mã PIN quản trị');
-      } else {
-        showToast('Lỗi kết nối server, thử lại');
-        state.pinBuffer = '';
-        renderPinDots();
-      }
+  if(state.pinBuffer.length < 4) return;
+
+  state.busy = true;
+  const r = await api('adminLogin', { pin: state.pinBuffer });
+  state.busy = false;
+  state.pinBuffer = ''; renderPinDots();
+
+  if(!r.ok){ showToast(r.error || 'Sai mã PIN'); return; }
+  await onLoggedIn(r);
+}
+
+async function onLoggedIn(r){
+  state.token = r.token;
+  saveToken(r.token);
+  state.identity = { name: r.name, role: r.role };
+  hideAllOverlays();
+  applyRoleUI();
+  await loadConfig();
+}
+
+async function loadConfig(){
+  const r = await api('getConfig');
+  if(r.ok){
+    state.config = r.config;
+    if(state.config){
+      $('rowRadius').textContent = state.config.radius + 'm';
+      $('checkinHint').innerHTML = '';
+      refreshSettingsView();
     } else {
-      const valid = await verifyPinRemote(state.pinBuffer);
-      if(valid){
-        const identity = {role:'admin', name:'Quản trị'};
-        saveLocalIdentity(identity);
-        state.identity = identity;
-        hideAllOverlays();
-        applyRoleUI();
-      } else {
-        showToast('Sai mã PIN');
-        state.pinBuffer = '';
-        renderPinDots();
-      }
+      $('checkinHint').innerHTML = '<b>Chưa cài đặt văn phòng.</b> Quản trị cần vào tab Cài đặt để chọn vị trí trước.';
     }
+  } else if(r.error !== 'AUTH'){
+    $('netBanner').innerHTML = '<div class="banner err"><b>Không tải được cài đặt</b>' + escapeHtml(r.error || '') + '</div>';
   }
 }
 
-// ---- init ----
+/* ---------- khởi động ---------- */
+function bootError(title, html){
+  ovBoot.style.display = 'flex';
+  $('bootTitle').textContent = title;
+  $('bootSub').textContent = '';
+  $('bootExtra').innerHTML = html;
+}
+
 (async function init(){
   buildKeypad();
-  state.config = await getConfig();
-  state.identity = getLocalIdentity();
+  hideAllOverlays();
+  ovBoot.style.display = 'flex';
 
-  if(state.identity){
-    hideAllOverlays();
-    applyRoleUI();
-  } else {
-    ovRole.style.display = 'flex';
+  const boot = await api('bootstrap');
+
+  if(!boot.ok){
+    bootError('Không kết nối được máy chủ',
+      '<div class="banner err"><b>' + escapeHtml(boot.error || 'Lỗi không rõ') + '</b>' +
+      'Kiểm tra ba thứ theo đúng thứ tự:<br>' +
+      '1. URL trong index.html có đúng bản deploy mới nhất không.<br>' +
+      '2. Trong Apps Script, mục <i>Who has access</i> phải là <b>Anyone</b>.<br>' +
+      '3. Đã bấm <i>Deploy &gt; Manage deployments &gt; New version</i> sau lần sửa code gần nhất chưa.</div>' +
+      '<button class="btn-primary" onclick="location.reload()">Thử lại</button>');
+    return;
   }
 
-  if(state.config){
-    document.getElementById('rowRadius').textContent = state.config.radius + 'm';
-  } else {
-    document.getElementById('checkinHint').innerHTML = '<b>Chưa cài đặt văn phòng.</b> Cần quản trị vào Cài đặt để chọn vị trí trước.';
+  if(!boot.ready){
+    bootError('Hệ thống chưa được cài đặt',
+      '<div class="banner warn"><b>Thiếu bước initSetup()</b>' +
+      'Mở Apps Script, sửa hai hằng số <code>SETUP_PIN</code> và <code>SETUP_INVITE</code> ở đầu file Code.gs, ' +
+      'chọn hàm <code>initSetup</code> rồi bấm Run. Xong thì tải lại trang này.</div>' +
+      '<button class="btn-primary" onclick="location.reload()">Đã làm xong, tải lại</button>');
+    return;
   }
-  refreshSettingsView();
+
+  state.token = loadToken();
+  if(state.token){
+    const me = await api('me');
+    if(me.ok && me.valid){
+      state.identity = { name: me.name, role: me.role };
+      hideAllOverlays();
+      applyRoleUI();
+      await loadConfig();
+      return;
+    }
+    dropToken(); state.token = null;
+  }
+
+  hideAllOverlays();
+  ovRole.style.display = 'flex';
 })();
 
-// Đăng ký service worker (bắt buộc để Chrome Android coi app là "installable")
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  });
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 }
 </script>
 
