@@ -11,6 +11,7 @@
 
 <!-- PWA: iOS "Add to Home Screen" support (Android bỏ qua các thẻ này) -->
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Điểm danh">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -257,45 +258,77 @@ function escapeHtml(s){
   const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
 }
 
-// ---- storage ----
+// ---- backend: Google Apps Script (Google Sheet làm DB) ----
+// Dùng JSONP (thẻ <script>) thay vì fetch() vì Apps Script không trả header CORS,
+// fetch() từ domain khác (GitHub Pages) sẽ bị trình duyệt chặn đọc phản hồi.
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwFBa20gUVtbDMOjI4xVq0DvadnhHjMl3jPRUWeV9V4JHbzPi07LVr8qDHnBmpqgOwU/exec';
+
+function apiCall(action, payload={}){
+  return new Promise((resolve)=>{
+    const cbName = 'cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const timeout = setTimeout(()=>{
+      cleanup();
+      resolve({ ok:false, error:'Hết thời gian chờ server' });
+    }, 15000);
+
+    function cleanup(){
+      clearTimeout(timeout);
+      delete window[cbName];
+      if(script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    window[cbName] = (data)=>{ cleanup(); resolve(data); };
+
+    const qs = new URLSearchParams({
+      action,
+      payload: JSON.stringify(payload),
+      callback: cbName
+    });
+    const script = document.createElement('script');
+    script.src = APPS_SCRIPT_URL + '?' + qs.toString();
+    script.onerror = ()=>{ cleanup(); resolve({ ok:false, error:'Không kết nối được server' }); };
+    document.body.appendChild(script);
+  });
+}
+
 async function getConfig(){
-  try{ const r = await window.storage.get('office-config', true); return r ? JSON.parse(r.value) : null; }catch(e){ return null; }
+  const r = await apiCall('getConfig');
+  return (r.ok && r.config) ? r.config : null;
+}
+async function checkHasPin(){
+  const r = await apiCall('getConfig');
+  return r.ok ? !!r.hasPin : false;
 }
 async function saveConfig(cfg){
-  try{ await window.storage.set('office-config', JSON.stringify(cfg), true); return true; }catch(e){ return false; }
+  const r = await apiCall('saveConfig', cfg);
+  return !!r.ok;
 }
-async function getAdminPin(){
-  try{ const r = await window.storage.get('admin-pin', true); return r ? r.value : null; }catch(e){ return null; }
+async function verifyPinRemote(pin){
+  const r = await apiCall('verifyPin', { pin });
+  return r.ok && r.valid;
 }
-async function saveAdminPin(pin){
-  try{ await window.storage.set('admin-pin', pin, true); return true; }catch(e){ return false; }
-}
-async function getLocalIdentity(){
-  try{ const r = await window.storage.get('identity', false); return r ? JSON.parse(r.value) : null; }catch(e){ return null; }
-}
-async function saveLocalIdentity(obj){
-  try{ await window.storage.set('identity', JSON.stringify(obj), false); }catch(e){}
-}
-async function clearLocalIdentity(){
-  try{ await window.storage.delete('identity', false); }catch(e){}
+async function setupPinRemote(pin){
+  const r = await apiCall('setupPin', { pin });
+  return !!r.ok;
 }
 async function logCheckin(entry){
-  try{
-    const key = 'checkin:' + entry.ts + ':' + Math.random().toString(36).slice(2,7);
-    await window.storage.set(key, JSON.stringify(entry), true);
-    return true;
-  }catch(e){ return false; }
+  const r = await apiCall('logCheckin', entry);
+  return !!r.ok;
 }
-async function loadHistory(){
-  try{
-    const list = await window.storage.list('checkin:', true);
-    if(!list || !list.keys) return [];
-    const entries = [];
-    for(const k of list.keys){
-      try{ const r = await window.storage.get(k, true); if(r) entries.push(JSON.parse(r.value)); }catch(e){}
-    }
-    return entries.sort((a,b)=>b.ts - a.ts);
-  }catch(e){ return []; }
+async function loadHistory(name, isAdmin){
+  const r = await apiCall('getHistory', { name, isAdmin });
+  return (r.ok && r.entries) ? r.entries : [];
+}
+
+// ---- danh tính trên máy: dùng localStorage (đây là web thật, không phải artifact Claude) ----
+function getLocalIdentity(){
+  try{ const v = localStorage.getItem('identity'); return v ? JSON.parse(v) : null; }catch(e){ return null; }
+}
+function saveLocalIdentity(obj){
+  try{ localStorage.setItem('identity', JSON.stringify(obj)); }catch(e){}
+}
+function clearLocalIdentity(){
+  try{ localStorage.removeItem('identity'); }catch(e){}
 }
 
 // ---- state ----
@@ -406,8 +439,8 @@ document.getElementById('btnSaveConfig').addEventListener('click', async ()=>{
   else showToast('Lỗi lưu cài đặt');
 });
 
-document.getElementById('btnResetRole').addEventListener('click', async ()=>{
-  await clearLocalIdentity();
+document.getElementById('btnResetRole').addEventListener('click', ()=>{
+  clearLocalIdentity();
   location.reload();
 });
 
@@ -424,11 +457,8 @@ function refreshSettingsView(){
 async function refreshHistory(){
   const list = document.getElementById('historyList');
   list.innerHTML = '<div class="empty">Đang tải…</div>';
-  let entries = await loadHistory();
   const isAdmin = state.identity && state.identity.role === 'admin';
-  if(!isAdmin){
-    entries = entries.filter(e => e.name === state.identity.name);
-  }
+  const entries = await loadHistory(state.identity ? state.identity.name : '', isAdmin);
   if(entries.length === 0){
     list.innerHTML = '<div class="empty">' + (isAdmin ? 'Chưa có lượt điểm danh nào' : 'Bạn chưa điểm danh lần nào') + '</div>';
     return;
@@ -467,14 +497,14 @@ document.getElementById('empNameConfirm').addEventListener('click', async ()=>{
   const name = document.getElementById('empNameInput').value.trim();
   if(!name){ showToast('Nhập tên trước đã'); return; }
   const identity = {role:'employee', name};
-  await saveLocalIdentity(identity);
+  saveLocalIdentity(identity);
   state.identity = identity;
   hideAllOverlays();
   applyRoleUI();
 });
 
 document.getElementById('pickAdmin').addEventListener('click', async ()=>{
-  const existingPin = await getAdminPin();
+  const existingPin = await checkHasPin();
   state.pinMode = existingPin ? 'verify' : 'setup';
   state.pinBuffer = '';
   document.getElementById('pinTitle').textContent = existingPin ? 'Nhập mã PIN quản trị' : 'Đặt mã PIN quản trị mới';
@@ -514,18 +544,24 @@ async function onPinKey(k){
   if(state.pinBuffer.length === 4){
     await new Promise(r=>setTimeout(r,150));
     if(state.pinMode === 'setup'){
-      await saveAdminPin(state.pinBuffer);
-      const identity = {role:'admin', name:'Quản trị'};
-      await saveLocalIdentity(identity);
-      state.identity = identity;
-      hideAllOverlays();
-      applyRoleUI();
-      showToast('✓ Đã đặt mã PIN quản trị');
-    } else {
-      const real = await getAdminPin();
-      if(state.pinBuffer === real){
+      const ok = await setupPinRemote(state.pinBuffer);
+      if(ok){
         const identity = {role:'admin', name:'Quản trị'};
-        await saveLocalIdentity(identity);
+        saveLocalIdentity(identity);
+        state.identity = identity;
+        hideAllOverlays();
+        applyRoleUI();
+        showToast('✓ Đã đặt mã PIN quản trị');
+      } else {
+        showToast('Lỗi kết nối server, thử lại');
+        state.pinBuffer = '';
+        renderPinDots();
+      }
+    } else {
+      const valid = await verifyPinRemote(state.pinBuffer);
+      if(valid){
+        const identity = {role:'admin', name:'Quản trị'};
+        saveLocalIdentity(identity);
         state.identity = identity;
         hideAllOverlays();
         applyRoleUI();
@@ -542,7 +578,7 @@ async function onPinKey(k){
 (async function init(){
   buildKeypad();
   state.config = await getConfig();
-  state.identity = await getLocalIdentity();
+  state.identity = getLocalIdentity();
 
   if(state.identity){
     hideAllOverlays();
